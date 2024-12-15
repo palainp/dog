@@ -1,0 +1,185 @@
+#!/bin/env python
+
+import os
+import argparse
+import subprocess
+import sys
+import uuid
+import time
+
+def printf_quiet(str, quiet=False):
+    if not quiet:
+        print(str)
+
+def number_of_visible_lines():
+    """
+    Get the current number of visible lines in the terminal.
+    """
+    if "TMUX" in os.environ:
+        # For tmux, use the tmux command to get the pane height (visible lines)
+        try:
+            result = subprocess.run(
+                ["tmux", "display-message", "-p", "#{pane_height}"],
+                stdout=subprocess.PIPE, check=True
+            )
+            return int(result.stdout.decode('utf-8').strip())
+        except subprocess.CalledProcessError as e:
+            print(f"Error getting visible lines from tmux: {e}")
+            return None
+
+    elif "STY" in os.environ:
+        try:
+            result = subprocess.run(
+                ["stty", "size"],
+                stdout=subprocess.PIPE, stderr=subprocess.PIPE, check=True
+            )
+            # Parse the output to get the height (visible lines)
+            output = result.stdout.decode('utf-8').strip()
+            rows, cols = output.split()  # The output is in the form "rows cols"
+            return int(rows)-1  # Rows correspond to the visible lines
+        except subprocess.CalledProcessError as e:
+            print(f"Error getting visible lines from screen: {e}")
+            return None
+        except ValueError:
+            print("Error: Unable to parse stty output.")
+            return None
+
+    else:
+        # For regular terminals, use tput
+        try:
+            result = subprocess.run(
+                ["tput", "lines"],
+                stdout=subprocess.PIPE, check=True
+            )
+            return int(result.stdout.decode('utf-8').strip())
+        except subprocess.CalledProcessError as e:
+            print(f"Error getting visible lines from terminal: {e}")
+            return None
+
+def keep_only(content="", history_lines=0, quiet=False):
+    """
+    Get [history_lines] lines from [content] if [history_lines] is not 0, everything otherwise.
+    """
+    if not content.strip():
+        printf_quiet("Warning: Captured content is empty. Ensure the scrollback buffer has content.", quiet)
+
+    lines = content.splitlines()  # Split content into a list of lines
+    if history_lines == 0:
+        return "\n".join(lines)
+    else:
+        skip = 2
+        history_lines += 2        # we have two additional lines at the end of the buffer
+        if not quiet:             # of not quiet we print a line in capture_terminal_content()
+            history_lines += 1
+            skip += 1
+        return "\n".join(lines[-history_lines:-skip])
+
+
+def capture_terminal_content(history_lines=0, quiet=False):
+    """
+    Capture the full scrollback buffer, including visible and historical content.
+    Supports tmux and screen. Prints an error and exits if neither is available.
+    Strip leading and trailing empty lines, and returns all the buffer if [history_lines]=None
+    returns, only [history_lines] otherwise.
+    """
+    try:
+        pp_history_lines = "all" if history_lines==0 else str(history_lines)
+        if "TMUX" in os.environ:
+            printf_quiet(f"Detected tmux. Capturing {pp_history_lines} lines from scrollback...", quiet)
+
+            # Capture scrollback with a user-specified limit (if given)
+            capture_cmd = ["tmux", "capture-pane", "-p"]
+
+            # We specify -S -<history_lines> to capture the last <history_lines> lines from tmux
+            if history_lines > 0:
+                capture_cmd += ["-S", f"-{history_lines}"]
+            else:
+                capture_cmd += ["-S", "-"]
+
+            result = subprocess.run(capture_cmd, stdout=subprocess.PIPE, check=True)
+            content = result.stdout.decode('utf-8', errors='replace')
+
+            return keep_only(content, history_lines, quiet)
+        
+        elif "STY" in os.environ:
+            printf_quiet(f"Detected screen. Capturing {pp_history_lines} lines from scrollback...", quiet)
+
+            # Ensure terminal output is flushed before capture starts
+            random_filename = f"/tmp/screen_hardcopy_{uuid.uuid4().hex}.txt"
+
+            # Step 1: Set the scrollback buffer size if history_lines is specified
+            capture_cmd = ["screen", "-X", f"scrollback {history_lines}"]
+            subprocess.run(capture_cmd, check=True)
+
+            # Step 2: Capture all the screen buffer with -h, it seems impossible to specify the number of lines
+            subprocess.run(["screen", "-X", "hardcopy", "-h", random_filename], check=True)
+            time.sleep(0.2) # sometimes the system has not enough time to flush the entire file...
+
+            # Check if the file exists and is readable
+            if not os.path.exists(random_filename):
+                print(f"Error: Screen output file {random_filename} not found.")
+                sys.exit(1)
+
+            # Step 3: Read the captured content
+            with open(random_filename, "rb") as f:
+                content = f.read().decode('utf-8', errors='replace')
+
+            # Optionally delete the file after reading
+            os.remove(random_filename)
+
+            return keep_only(content, history_lines, quiet)
+
+        else:
+            sys.stderr.write("Error: Scrollback capture requires tmux or screen.\n")
+            sys.exit(1)
+    except subprocess.CalledProcessError as e:
+        sys.stderr.write(f"Error capturing terminal content: {e}\n")
+        sys.exit(1)
+    except Exception as e:
+        sys.stderr.write(f"Unexpected error: {e}\n")
+        sys.exit(1)
+
+def save_to_file(content, filename, append=False, quiet=False):
+    """
+    Save the captured terminal content to a file.
+    """
+    if append:
+        printf_quiet(f"Appending to file: {filename}", quiet)
+        mode = 'a'
+    else:
+        if not quiet:
+            print(f"Saving to file: {filename}")
+        mode = 'w'
+    try:
+        with open(filename, mode) as f:
+            f.write(content)
+        printf_quiet(f"Content successfully saved to {filename}", quiet)
+    except Exception as e:
+        sys.stderr.write(f"Error saving file {filename}: {e}\n")
+        sys.exit(1)
+
+def add_line_numbers(content):
+    """
+    Prefix each line of the captured content with a line number.
+    """
+    lines = content.splitlines()
+    numbered_lines = [f"{i+1}: {line}" for i, line in enumerate(lines)]
+    return "\n".join(numbered_lines)
+
+def main():
+    visible_lines = number_of_visible_lines()
+    parser = argparse.ArgumentParser(description="save the current terminal content to a file.")
+    parser.add_argument('file', help="the file to save the terminal content.")
+    parser.add_argument('-q', '--quiet',  action='store_true', help="do not print anything except the error messages.")
+    parser.add_argument('-a', '--append', action='store_true', help="append to the file instead of overwriting.")
+    parser.add_argument('-n', '--number', action='store_true', help="prefix each line with a line number.")
+    parser.add_argument('-l', '--length', type=int, default=visible_lines, help="capture the last X lines of the scrollback buffer. Default is the visible space ("+str(visible_lines)+" lines). Use 0 for all the scrollbck buffer history.")
+    args = parser.parse_args()
+
+    content = capture_terminal_content(history_lines=args.length, quiet=args.quiet)
+    if args.number:
+        content = add_line_numbers(content)
+    save_to_file(content, args.file, append=args.append, quiet=args.quiet)
+
+if __name__ == "__main__":
+    main()
