@@ -6,9 +6,21 @@ import sys
 import uuid
 import time
 
+config = {"verbose": False, "version": 0.1}
 
-def printf_quiet(s="", quiet=False):
-    if not quiet:
+def print_version():
+    """
+    Print the version and license message.
+    """
+    print("dog "+str(config["version"]))
+    print("License BSD 2-Clause")
+
+
+def print_verbose(s=""):
+    """
+    Print the string if config["verbose"] is set to True.
+    """
+    if config["verbose"]:
         print(s)
 
 
@@ -60,14 +72,13 @@ def number_of_visible_lines():
             return None
 
 
-def keep_only(content="", history_lines=0, quiet=False):
+def keep_only(content="", history_lines=0):
     """
     Get [history_lines] lines from [content] if [history_lines] is not 0, everything otherwise.
     """
     if not content.strip():
-        printf_quiet(
+        print_verbose(
             "Warning: Captured content is empty. Ensure the scrollback buffer has content.",
-            quiet,
         )
 
     lines = content.splitlines()  # Split content into a list of lines
@@ -77,13 +88,13 @@ def keep_only(content="", history_lines=0, quiet=False):
     # else
     skip = 2
     history_lines += 2  # we have two additional lines at the end of the buffer
-    if not quiet:  # of not quiet we print a line in capture_terminal_content()
+    if config["verbose"]: # if verbose we print a line in capture_terminal_content()
         history_lines += 1
         skip += 1
     return "\n".join(lines[-history_lines:-skip])
 
 
-def capture_terminal_content(history_lines=0, quiet=False):
+def capture_terminal_content(history_lines=0):
     """
     Capture the full scrollback buffer, including visible and historical content.
     Supports tmux and screen. Prints an error and exits if neither is available.
@@ -93,9 +104,8 @@ def capture_terminal_content(history_lines=0, quiet=False):
     try:
         pp_history_lines = "all" if history_lines == 0 else str(history_lines)
         if "TMUX" in os.environ:
-            printf_quiet(
+            print_verbose(
                 f"Detected tmux. Capturing {pp_history_lines} lines from scrollback...",
-                quiet,
             )
 
             # Capture scrollback with a user-specified limit (if given)
@@ -110,13 +120,12 @@ def capture_terminal_content(history_lines=0, quiet=False):
             result = subprocess.run(capture_cmd, stdout=subprocess.PIPE, check=True)
             content = result.stdout.decode("utf-8", errors="replace")
 
-            return keep_only(content, history_lines, quiet)
+            return keep_only(content, history_lines)
 
         # else
         if "STY" in os.environ:
-            printf_quiet(
+            print_verbose(
                 f"Detected screen. Capturing {pp_history_lines} lines from scrollback...",
-                quiet,
             )
 
             # Ensure terminal output is flushed before capture starts
@@ -147,7 +156,7 @@ def capture_terminal_content(history_lines=0, quiet=False):
             # Optionally delete the file after reading
             os.remove(random_filename)
 
-            return keep_only(content, history_lines, quiet)
+            return keep_only(content, history_lines)
 
         # else
         sys.stderr.write("Error: Scrollback capture requires tmux or screen.\n")
@@ -160,21 +169,20 @@ def capture_terminal_content(history_lines=0, quiet=False):
         sys.exit(1)
 
 
-def save_to_file(content, filename, append=False, quiet=False):
+def save_to_file(content, filename, append=False):
     """
     Save the captured terminal content to a file.
     """
     if append:
-        printf_quiet(f"Appending to file: {filename}", quiet)
+        print_verbose(f"Appending to file: {filename}")
         mode = "a"
     else:
-        if not quiet:
-            print(f"Saving to file: {filename}")
+        print_verbose(f"Saving to file: {filename}")
         mode = "w"
     try:
         with open(filename, mode, encoding="utf-8") as f:
             f.write(content)
-        printf_quiet(f"Content successfully saved to {filename}", quiet)
+        print_verbose(f"Content successfully saved to {filename}")
     except Exception as e:
         sys.stderr.write(f"Error saving file {filename}: {e}\n")
         sys.exit(1)
@@ -190,17 +198,14 @@ def add_line_numbers(content):
 
 
 def main():
+    """
+    Retrieve arguments and deal with them.
+    """
     visible_lines = number_of_visible_lines()
     parser = argparse.ArgumentParser(
         description="save the current terminal content to a file."
     )
-    parser.add_argument("file", help="the file to save the terminal content.")
-    parser.add_argument(
-        "-q",
-        "--quiet",
-        action="store_true",
-        help="do not print anything except the error messages.",
-    )
+    parser.add_argument("file", nargs='?', help="the file to save the terminal content.")
     parser.add_argument(
         "-a",
         "--append",
@@ -218,16 +223,40 @@ def main():
         "--length",
         type=int,
         default=visible_lines,
-        help="capture the last X lines of the scrollback buffer. Default is the visible space ("
+        help="capture the last LENGTH lines of the scrollback buffer. Default is the"
+        + "visible space ("
         + str(visible_lines)
         + " lines). Use 0 for all the scrollbck buffer history.",
     )
+    parser.add_argument(
+        "--verbose",
+        action="store_true",
+        default=False,
+        help="print informational messages.",
+    )
+    parser.add_argument(
+        "--version",
+        action="store_true",
+        help="print the version number.",
+    )
+    args, _ = parser.parse_known_args()
+
+    if args.version:
+        print_version()
+        sys.exit(0)
+
     args = parser.parse_args()
 
-    content = capture_terminal_content(history_lines=args.length, quiet=args.quiet)
+    if not args.file:
+        print("Error: output file is missing.")
+        parser.print_help()
+        sys.exit(0)
+
+    config["verbose"] = args.verbose
+    content = capture_terminal_content(history_lines=args.length)
     if args.number:
         content = add_line_numbers(content)
-    save_to_file(content, args.file, append=args.append, quiet=args.quiet)
+    save_to_file(content, args.file, append=args.append)
 
 
 if __name__ == "__main__":
