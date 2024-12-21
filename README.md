@@ -8,7 +8,8 @@ This tool currently only supports `screen` and `tmux` as terminal emulators.
 - **Capture terminal content**: Capture the current visible terminal content and save it to a file.
 - **Scrollback buffer support**: Supports capturing the scrollback buffer content from tmux or screen sessions.
 - **Options**:
-  - `-q` / `--quiet`: Do not print anything except the error messages.
+  - `--verbose`: Print anything additional messages.
+  - `--version`: Print the version number.
   - `-a` / `--append`: Append the content to an existing file.
   - `-n` / `--number`: Prefix lines with the line number.
   - `-l` / `--length`: Limit the number of lines captured from the terminal history. Default value is the visible space. 0 stands for the entire scrollback buffer.
@@ -22,7 +23,7 @@ You can use it directly from the source.
 Capture the current visible content of the terminal and save it to a file:
 
 ```bash
-$ dog output.txt
+$ dog --verbose output.txt
 Detected screen. Capturing 20 lines from scrollback...
 Saving to file: output.txt
 Content successfully saved to output.txt
@@ -31,7 +32,7 @@ Content successfully saved to output.txt
 Append the terminal content to an existing file:
 
 ```bash
-$ dog -a output.txt
+$ dog --verbose -a output.txt
 Detected screen. Capturing 20 lines from scrollback...
 Appending to file: output.txt
 Content successfully saved to output.txt
@@ -40,7 +41,7 @@ Content successfully saved to output.txt
 Add line numbers to each line of the captured content:
 
 ```bash
-$ dog -n output.txt && cat output.txt
+$ dog --verbose -n output.txt && cat output.txt
 Detected screen. Capturing 20 lines from scrollback...
 Saving to file: output.txt
 Content successfully saved to output.txt
@@ -52,7 +53,7 @@ Content successfully saved to output.txt
 Capture only the last N lines from the terminal's history:
 
 ```bash
-$ dog -l 50 output.txt
+$ dog --verbose -l 50 output.txt
 Detected screen. Capturing 50 lines from scrollback...
 Saving to file: output.txt
 Content successfully saved to output.txt
