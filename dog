@@ -1,4 +1,11 @@
 #!/bin/env python
+"""
+dog - A command-line tool to capture terminal output and save it to a file.
+
+This script supports tmux and screen environments, allowing users to
+save visible and historical terminal content with options for line
+numbering and additional configurations.
+"""
 import os
 import argparse
 import subprocess
@@ -39,9 +46,10 @@ def number_of_visible_lines():
             return int(result.stdout.decode("utf-8").strip())
         except subprocess.CalledProcessError as e:
             print(f"Error getting visible lines from tmux: {e}")
-            return None
 
-    elif "STY" in os.environ:
+        return None
+
+    if "STY" in os.environ:
         try:
             result = subprocess.run(
                 ["stty", "size"],
@@ -55,21 +63,21 @@ def number_of_visible_lines():
             return int(rows) - 1  # Rows correspond to the visible lines
         except subprocess.CalledProcessError as e:
             print(f"Error getting visible lines from screen: {e}")
-            return None
         except ValueError:
             print("Error: Unable to parse stty output.")
-            return None
 
-    else:
-        # For regular terminals, use tput
-        try:
-            result = subprocess.run(
-                ["tput", "lines"], stdout=subprocess.PIPE, check=True
-            )
-            return int(result.stdout.decode("utf-8").strip())
-        except subprocess.CalledProcessError as e:
-            print(f"Error getting visible lines from terminal: {e}")
-            return None
+        return None
+
+    # For regular terminals, use tput
+    try:
+        result = subprocess.run(
+            ["tput", "lines"], stdout=subprocess.PIPE, check=True
+        )
+        return int(result.stdout.decode("utf-8").strip())
+    except subprocess.CalledProcessError as e:
+        print(f"Error getting visible lines from terminal: {e}")
+
+    return None
 
 
 def keep_only(content="", history_lines=0):
