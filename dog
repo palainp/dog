@@ -81,7 +81,10 @@ def keep_only(content="", history_lines=0):
             "Warning: Captured content is empty. Ensure the scrollback buffer has content.",
         )
 
-    lines = content.splitlines()  # Split content into a list of lines
+    # Remove empty lines is the number of visible lines is greter than the history size
+    content = content.strip('\n')
+    # Split content into a list of lines
+    lines = content.splitlines()
     if history_lines == 0:
         return "\n".join(lines)
 
